@@ -1,0 +1,270 @@
+#######################################################
+#### Simulations for Aurora's Cycle 2 ALMA proposal
+#### on the M87 filaments
+#### G. Tremblay 22 November 2012
+#######################################################
+
+First, some preliminary thoughts: 
+
+Philippe pointed the IRAM 30m at  the core for five hours and got only
+an upper limit at both  CO(2-1) and (1-0).  He also got non-detections
+in his  off-nuclear filament pointings (Salome&Comes08).   If there is
+cold  gas in  M87, there  clearly  isn't very  much (less  than a  few
+million Msol  at best),  so we need  to go  DEEP. The TAC  has already
+approved  an ALMA core  observation of  M87 (Cycle  1 project  with PI
+Vlahakis).   The quasi-duplication combined  with the  incredibly iffy
+cold gas  content of this source  requires a proposal  that is unique,
+compelling,  and not representative  of a  serious time  investment or
+high risk for ALMA.   The Cycle 0 & 1 TACs have  so far been averse to
+high risk  / high reward proposals,  particularly when they  ask for a
+lot of  time. We'll  also almost certainly  need/want a mosaic  of the
+filaments  (thereby increasing  our time  request), so  we need  to be
+careful and realistic in our simulations.
+
+
+################ 1. Make a sky model ##################
+
+We take Aurora's  residual Ha+[NII] HST WFPC2 image,  and assume that,
+if present, half  of the cold gas will  follow the extended filaments,
+and half will be  contained in a region <<<1 arcsec in  the core (in a
+pc-scale disk, for example). Of course, maybe all the cold gas is deep
+in the core. But then there's no point to these simulations, is there?
+So we have  to assume some cold gas is in  the kpc-scale filaments for
+this to be a useful exercise.
+
+We will NOT  have the dynamic range to decouple  any emission from the
+mm-continuum associated  with the jet  (the spectral dynamic  range in
+ALMA cycle 1 is 500, we're easily >1000 in this case). So I have taken
+Aurora's image, subtracted off  residual smooth galaxy light by making
+an  unsharp mask  (Aurora's image  already  had a  de Vaucouleurs  fit
+subtracted from  it), blanked almost all non-filament  pixels to zero,
+blanked  hot pixels  to  either  zero or  the  local filament  surface
+brightness (if  cospatial with filament), ***masked out  both the core
+and the jet***, and smoothed the image with a sigma=2.0 gaussian.
+
+Note that our  sky model indeed does not include any  noise on the sky
+(all non-filament pixels are exactly zero). This is intentional, as we
+will  be adding  noise  in  our ALMA  simulations.  Including HST  sky
+background results in an overestimation of the noise.
+
+**There is  a critical  assumption underlying all  of this:  We assume
+that the cold gas distribution  will exactly follow the Halpha surface
+brightness. It is of course an inherently risky assumption (especially
+as some  of the  filaments are clearly  non-stellar), but we  can't do
+much better. If  all of the cold  gas is at <<<<1 arcsec  in the core,
+it's pointless anyway,  so we must assume that it's  extended - and if
+it is, its  likely extended along the optical filaments  (as it is for
+perseus, Salome+11).   Note that there is also  [NII] contamination in
+Aurora's image (but this isn't something to worry about).
+
+
+
+###### 2. Distribute CO flux throughout our Model's filaments #######
+
+Now let's see how much flux we can distribute along the filaments of our sky model
+
+We'll start with Philippe's 1 sigma upper limit beam temps from his non-detection
+(Salome & Combes 08). 
+
+He lists his beam temps in mK, so we need to convert this to a proper flux: 
+
+############################## In IDL #################################### 
+tB = 2.5       ; Play with this value. First assume Philippe's upper limit
+a = 13.0 / 2.0 ; IRAM CO(2-1) beam semi-major axis
+b = 13.0 / 2.0 ; ... and its semi-minor axis
+; constants: 
+c = 2.99792458e10; 
+pi = 3.1416; 
+kB = 1.380658e-16; 
+nu = 230.0e9 ; CO(2-1) at z=0.0821 (A2597)
+Jycgs = 1.0e-23; 
+arcsec2rad = 1.0 / ((180/pi)*3600.0); 
+
+S = (tB * pi * a * b * arcsec2rad^2 * 2 * kB * nu^2 / (c^2 * ALOG(2.0) * JYcgs))
+print, S; 
+print, 'in mJy'
+############################################################################
+ 
+The filaments reside within a circle of area ~5800 arcsec^2. The filling factor 
+is probably about 20%, so the filaments occupy ~1000 arcsec^2 (oof). 
+
+
+Once we have a total integrated CO flux that we want to distribute along the 
+filaments (exactly following their surface brightness profile). 
+
+
+############################## In IDL #################################### 
+f=readfits("m87_rescale_this.fits",hdr) ; "rescale_this.fits" is our base sky model
+print, total(f,/nan)
+print, max(f,/nan)			
+
+desired_CO21_integrated_brightness = 50  ; ** must be in mJy **
+                                         ; this is the *total* (integrated) flux you want to 
+                                         ; distribute in the filaments.  
+ 
+;in mJy, to distribute throughout the filaments
+rescale_factor= desired_CO21_integrated_brightness / total(double(f),/nan)
+print, rescale_factor
+f2=(double(f)*double(rescale_factor))
+print, max(f2)				; Check if this matches the total flux you wanted
+
+; BUT WAIT! Simobserve requires the input image to be IN JY/PIXEL. NOT mJy/pixel! 
+
+f2=(double(f2)/1000.0)
+print, total(f2) ; ensure that the total flux matches the desired one IN JANSKY
+writefits,"m87_alma_sim_input.fits",f2,hdr ; make our simulation input image
+########################################################################## 
+
+
+########################## 3.Run simulations ##############################
+
+How to run: 
+I have made a simple script here: m87_alma_sim_v1.py
+
+Parameters to play with are well-commented and should be pretty self evident
+(otherwise the CASA guides will help) 
+
+How to run: 
+
+1. Put the desired flux into the filament model (see above)
+2. Decide on your pointings by creating (or editing) a .ptg file. List your newly 
+created .ptg file in the ptgfile parameter in m87_alma_sim_v1.py
+3. Tweak other parameters as desired (e.g. total time on source, etc.)
+4. Run the script. Here's how:  
+############################## In CASA 4.2 #################################### 
+execfile("m87_alma_sim_v1.py")      
+###############################################################################
+
+Note that you MUST have 4.2 for this. If you have CASA 4.1, you need to provide
+the ALMA cycle 2 antenna configuration files yourself. 
+
+
+################### 4. Results from the Simulations I ran #####################
+
+I ran the simulations under four assumptions: 
+
+
+
+################### RUN 1: MOST OPTIMISTIC FLUX WITH FULL MOSAIC (FAIL) #####################
+
+Run 1.  The most optimistic (and unrealistic) scenario: We assume
+that the Tan+08 "detection" of CO(2-1) at 20 mJy and 30 mJy in two components
+around the systemic velocity is real. In this case we distribute 50 mJy throughout 
+the filaments, following the surface brightness. We assume that the TAC will 
+give us infinite time, so we use 10 hours on source and mosaic the entire 
+filament system. 
+
+Params: 
+Full mosaic of all filaments (7 pointings). Note that the mosaic intentionally avoids the jet. 
+50 mJy spread throughout filaments
+10 hours on source (evenly divided among pointings)
+1 arcsec resolution at CO(2-1)
+
+Run 1 result: Well, we detect most of the filaments, but  10 hours on source 
+(results in 1.4 hours per pointing) is a really big time request for a single object. 
+
+Conclusion: **UNLESS WE'RE ESPECIALLY BRILLIANT, I DOUBT THE TAC WILL APPROVE 
+10 HOURS ON SOURCE FOR M87. WITH OVERHEADS AND CALIBRATORS THAT'S A HUGE TIME REQUEST**
+
+
+############### RUN 2: MOST OPTIMISTIC FLUX WITH PARTIAL MOSAIC AND LESS TIME  ################
+
+Run 2. Well, okay, so we clearly can't observe the whole filament system. Lets mosaic only 
+the brightest part of it (i.e. the eastern "hook" feature), assuming the same (overly optimistic)
+flux from Run 1. But lets reduce the time request to something reasonable (4 hours total on source).  
+
+Params: 
+Partial (3 pointing) mosaic of the SE filament "hook" feature
+50 mJy flux spread throughout the entire filament system (not just the hook)
+4 hours on source (evenly divided among pointings)
+1 arcsec resolution at CO(2-1)
+
+Run 2 result: We clearly pick up the SE loop in our three pointing mosaic (4 hours 
+on source total) at high SN. 
+
+Conclusion: Feasible. But remember, this assumes the most optimistic flux. 
+
+
+############### RUN 3: LEAST OPTIMISTIC FLUX WITH PARTIAL MOSAIC OF SE FILAMENT  ################
+
+Run 3. Lets see how bad we can make the flux, yet still achieve a mosaic of the SE filament 
+in a reasonable time request. 
+
+
+Params: 
+Partial (3 pointing) mosaic of the SE filament "hook" feature
+5 mJy flux spread throughout the entire filament system (not just the hook)
+4 hours on source (evenly divided among pointings)
+1 arcsec resolution at CO(2-1)
+
+We've decreased the total CO flux in the filaments by a factor of 10. Will we still detect the SE loop?
+
+Run 3 result: we barely pick it up, but not at very high SN. But it IS there and we could 
+reach SN=10 with binning (I think). 
+
+
+############### RUN 4: LEAST OPTIMISTIC FLUX WITH A SINGLE DEEP POITNING OF SE FILAMENT ###########
+
+Run 4. Let's keep the flux really bad (5 mJy in the filaments total), but stare (with one pointing)
+at the center of the SE filament hook for 6 hours. What is the FOV of our half power beam? What kind 
+of SN do we get? Do we want to abandon a mosaic for a single deep pointing? 
+
+Params: 
+Partial (3 pointing) mosaic of the SE filament "hook" feature
+5 mJy flux spread throughout the entire filament system (not just the hook)
+6 hours on source (evenly divided among pointings)
+1 arcsec resolution at CO(2-1)
+
+
+Run 4 result: We easily pick up the brightest part of the loop, but don't resolve the 
+more extended and fainter filaments to the E and NW. But we basically pick up all 
+of the brightest part. Check out m87_sim_run4_result.fits to see what I mean. Remember, 
+this is with the LEAST optimistic flux. 
+
+
+
+############### RUN 5: COMPROMISE: MODERATE FLUX WITH A SMALL MOSAIC ###########
+
+Run 5. Lets pretend that our actual flux is better than the least optimistic 
+scenario, but lower than Philippe's upper limit. Say 10 mJy total throughout all 
+filaments. Let's do a small mosaic of the brightest regions. 
+
+Params. 
+Partial (5 pointing) mosaic of the E and N filament regions (not the whole thing). 
+10 mJy flux spread throughout the filaments. 
+4 hours total. 
+1 arcsec resolution at CO(2-1)
+
+Run 5 result: Fail (mostly). We BARELY detect the northern filaments. We only detect 
+the SE loop. Let's hope that this 10 mJy is really conservative. But we either 
+go really deep on the northern filaments, or we don't go for them at all. 
+
+
+
+
+############### PARTING THOUGHTS  ###########
+
+Maybe we should stick to that SE loop. There might be interesting 
+dynamical things going on (cold molecular and warm ionized gas pushed aside by the 
+radio source?). I know the filament wraps around the lobe. 
+Do we expect cold molecular gas here at all? As I recall this filament 
+has no associated UV stellar continuum (check this). 
+
+Lets do a final run with a simple TWO pointing mosaic of the SE filament, 
+assuming 10 mJy total throughout all filaments (well below Philippe's upper limit) 
+and using 5 hours on source (2.5 hours per pointing). 
+
+So for Run 6 we have: 
+Partial (2 pointing) mosaic of the SE filament "hook" feature
+10 mJy flux spread throughout the entire filament system (not just the hook)
+5 hours on source (evenly divided among pointings)
+1 arcsec resolution at CO(2-1)
+
+We get pretty good signal even in this gloomy flux scenario. (note that 
+calculating exact SN is tricky as this obviously depends on how many 
+channels you bin up. Right now I'm aiming for somehting like 40 km/sec
+spectral resolution with this setup). Estimating how much continuum 
+we expect (if any) is really tricky. There is bright 230 GHz continuum detection 
+in this source, but it's completely dominated by the jet. 
+
+
